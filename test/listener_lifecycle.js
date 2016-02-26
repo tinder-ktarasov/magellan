@@ -6,6 +6,7 @@ var _ = require("lodash");
 var settings = require("../src/settings");
 var WorkerAllocator = require("../src/worker_allocator");
 var TestListener = require("../test_support/test_listener");
+var createBrowser = require("../src/browser");
 
 settings.framework = "magellan-fake";
 settings.testFramework = require("../test_support/magellan-selftest-plugin/index");
@@ -17,7 +18,7 @@ var baseOptions = {
   debug: false,
   maxWorkers: MAX_WORKERS,
   maxTestAttempts: 1,
-  browsers: ["phantomjs"],
+  browsers: [createBrowser("MagellanFake")],
   listeners: [],
   bailFast: false,
   bailOnThreshold: false,

@@ -4,25 +4,7 @@ var sauceBrowsers = require("./sauce/browsers.js");
 var Q = require("q");
 var hostedProfiles = require("./hosted_profiles");
 var _ = require("lodash");
-
-var createBrowser = function (id, resolution, orientation) {
-  var result = {
-    slug: function () {
-      return this.browserId
-        + (this.resolution ? "_" + this.resolution : "")
-        + (this.orientation ? "_" + this.orientation : "");
-    },
-    toString: function () {
-      return this.browserId
-        + (this.resolution ? " @" + this.resolution : "")
-        + (this.orientation ? " orientation: " + this.orientation : "");
-    },
-    browserId: id,
-    resolution: resolution ? resolution.trim() : undefined,
-    orientation: orientation ? orientation.trim() : undefined
-  };
-  return result;
-};
+var createBrowser = require("./browser");
 
 module.exports = {
 
@@ -31,7 +13,7 @@ module.exports = {
   /*eslint-disable no-magic-numbers*/
   // Return a promise that we'll resolve with a list of browsers selected
   // by the user from command line arguments
-  detectFromCLI: function (argv, sauceEnabled, isNodeBased) {
+  detectFromCLI: function (argv, sauceEnabled, defaultEnvironmentName) {
     var deferred = Q.defer();
     var browsers;
 
@@ -141,12 +123,14 @@ module.exports = {
         if (sauceEnabled) {
           browsers = [];
         } else {
+          // var fallbackBrowser;
+          // if (isNodeBased) {
+          //   fallbackBrowser = createBrowser("nodejs", argv.resolution, argv.orientation);
+          // } else {
+          //   fallbackBrowser = createBrowser("phantomjs", argv.resolution, argv.orientation);
+          // }
           var fallbackBrowser;
-          if (isNodeBased) {
-            fallbackBrowser = createBrowser("nodejs", argv.resolution, argv.orientation);
-          } else {
-            fallbackBrowser = createBrowser("phantomjs", argv.resolution, argv.orientation);
-          }
+          fallbackBrowser = createBrowser(defaultEnvironmentName, argv.resolution, argv.orientation);
           browsers = [fallbackBrowser];
         }
       }

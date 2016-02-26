@@ -1,6 +1,7 @@
 "use strict";
 
 var fork = require("child_process").fork;
+var spawn = require("child_process").spawn;
 var async = require("async");
 var _ = require("lodash");
 var clc = require("cli-color");
@@ -11,6 +12,7 @@ var once = require("once");
 var EventEmitter = require("events").EventEmitter;
 var fs = require("fs");
 var mkdirSync = require("./mkdir_sync");
+var treeKill = require("tree-kill");
 
 var sauceBrowsers = require("./sauce/browsers");
 
@@ -235,7 +237,13 @@ TestRunner.prototype = {
 
     var childProcess;
     try {
-      childProcess = fork(testRun.getCommand(), testRun.getArguments(), options);
+      if (settings.testFramework.isSpawned) {
+        console.log("SPAWNING");
+        childProcess = spawn(testRun.getCommand(), testRun.getArguments(), options);
+      } else {
+        console.log("FORKING");
+        childProcess = fork(testRun.getCommand(), testRun.getArguments(), options);
+      }
     } catch (e) {
       deferred.reject(e);
       return deferred.promise;
@@ -371,12 +379,13 @@ TestRunner.prototype = {
         // the sentry from monitoring.
         clearInterval(sentry);
 
-        // Tell the child to shut down the running test immediately
-        childProcess.send({
-          signal: "bail",
-          customMessage: "Killed by magellan after " + strictness.LONG_RUNNING_TEST
-            + "ms (long running test)"
-        });
+        // We use treeKill instead of childProcess.kill(), SIGTERM, SIGINT, etc.
+        // This is because we need to make sure that the entire process tree of
+        // the child process is killed to avoid leaving behind zombie processes.
+        // (i.e. Some frameworks like Nightwatch start subprocesses like java, and
+        // a mere SIGTERM or SIGINT does not terminate those processes. In order
+        // to support many different frameworks, we need a fool-proof kill method.
+        treeKill(childProcess.pid);
 
         setTimeout(function () {
           // We pass code 1 to simulate a failure return code from fork()

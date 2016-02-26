@@ -38,7 +38,6 @@ var browsers = require("../src/sauce/browsers");
 var loadRelativeModule = require("../src/util/load_relative_module");
 
 var isSauce = margs.argv.sauce ? true : false;
-var isNodeBased = margs.argv.framework && margs.argv.framework.indexOf("mocha") > -1;
 
 var debug = margs.argv.debug || false;
 var useSerialMode = margs.argv.serial;
@@ -94,6 +93,29 @@ try {
   settings.testFramework.initialize(margs.argv, settings.pluginOptions);
 } catch (e) {
   frameworkInitializationException = e;
+}
+
+
+//
+//
+//
+//
+//
+//
+// TODO: document what's going on here
+//
+//
+//
+//
+//
+//
+var defaultEnvironmentName;
+if (settings.testFramework.defaultEnvironmentName) {
+  defaultEnvironmentName = settings.testFramework.defaultEnvironmentName;
+} else if (margs.argv.framework && margs.argv.framework.indexOf("mocha") > -1) {
+  defaultEnvironmentName = "nodejs";
+} else {
+  defaultEnvironmentName = "phantomjs";
 }
 
 // Show help and exit if it's asked for
@@ -288,7 +310,7 @@ browsers.initialize(isSauce)
       browsers.addDevicesFromFile(margs.argv.device_additions);
     }
   })
-  .then(browserOptions.detectFromCLI.bind({}, margs.argv, isSauce, isNodeBased))
+  .then(browserOptions.detectFromCLI.bind({}, margs.argv, isSauce, defaultEnvironmentName))
   .then(function (_selectedBrowsers) {
     selectedBrowsers = _selectedBrowsers;
     if (_selectedBrowsers.length === 0) {
