@@ -102,7 +102,33 @@ function TestRunner(tests, options) {
 
   this.allocator = options.allocator;
 
-  // For each actual test path, split out
+  // Given: 
+  // - entire tier list
+  // - entire list of tests
+  // - desired partition index
+  // - number of partitions that exist
+
+  options.partitionCount = 7;
+  options.partitionIndex = 1;
+
+  // Validate partition size and index. Both must be present together if specified.
+  if (typeof(options.partitionCount) !== "undefined" || typeof(options.partitionIndex) !== "undefined") {
+    if (typeof(options.partitionCount) === "undefined" || typeof(options.partitionIndex) === "undefined") {
+      throw new Error("Missing arguments: Partition count and index must be specified together.");
+    } else {
+      options.partitionCount = parseInt(options.partitionCount);
+      options.partitionIndex = parseInt(options.partitionIndex);
+      if (isNaN(options.partitionCount) || options.partitionCount < 1) {
+        throw new Error("Invalid argument: Partition count must be an integer > 0");
+      }
+      if (isNaN(options.partitionIndex) || options.partitionCount < 0) {
+        throw new Error("Invalid argument: Partition index must be an integer >= 0");
+      }
+    }
+  }
+
+  var partitioningExplicitlyEnabled = _.isNumber(options.partitionIndex);
+
   this.tests = _.flatten(tests.map(function (testLocator) {
     return options.browsers.map(function (requestedBrowser) {
       // Note: For non-sauce browsers, this can come back empty, which is just fine.
@@ -111,6 +137,11 @@ function TestRunner(tests, options) {
       return new Test(testLocator, requestedBrowser, sauceBrowserSettings, self.MAX_TEST_ATTEMPTS);
     });
   }));
+
+  // if we've enabled partitioning, chop our workload into partitions and choose one to work on
+  if (partitioningExplicitlyEnabled) {
+    this.tests = this.getTestPartition(this.tests, options.partitionCount, options.partitionIndex);
+  }
 
   if (settings.gatherTrends) {
     this.trends = {
@@ -132,6 +163,19 @@ function TestRunner(tests, options) {
 }
 
 TestRunner.prototype = {
+
+  getTestPartition: function (partitionCount, partitionIndex) {
+    // Default to a partition size that contains the entire test list if not specified
+    // Partitions are zero-indexed, so if partitionIndex=0, pick the first partition
+    var partitionSize = Math.ceil(this.tests.length / partitionCount);
+    var offset = partitionIndex * partitionSize;
+
+    console.log("Paritioning enabled. Dividing " + this.tests.length + " tests into " + partitionCount
+      + " pieces of length " + partitionSize + " and choosing partition #" + partitionIndex
+      + "(zero-indexed)");
+
+    return _.slice(this.tests, offset, offset + partitionSize);
+  },
 
   start: function () {
     this.startTime = (new Date()).getTime();
