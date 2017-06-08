@@ -299,238 +299,240 @@ class TestRunner {
       stdio: ["pipe", "pipe", "pipe", "ipc"]
     };
 
-    let handler;
-    try {
-      //////////////////////////////////////////////////
-      handler = this.executors[test.profile.executor].execute(testRun, options);
-      this.notIdle();
-    } catch (e) {
-      deferred.reject(e);
-      return deferred.promise;
-    }
+    Promise.resolve()
+      .then(() => {
+        //////////////////////////////////////////////////
+        const handler = this.executors[test.profile.executor].execute(testRun, options);
+        this.notIdle();
+        return handler;
+      })
+      .catch(e => {
+        deferred.reject(e);
+      })
+      .then(handler => {
+        // Simulate some of the aspects of a node process by adding stdout and stderr streams
+        // that can be used by listeners and reporters.
+        const statusEmitter = new EventEmitter();
+        statusEmitter.stdout = handler.stdout;
+        statusEmitter.stderr = handler.stderr;
+        const statusEmitterEmit = (type, message) => {
+          statusEmitter.emit(type, message);
+        };
 
-    // Simulate some of the aspects of a node process by adding stdout and stderr streams
-    // that can be used by listeners and reporters.
-    const statusEmitter = new EventEmitter();
-    statusEmitter.stdout = handler.stdout;
-    statusEmitter.stderr = handler.stderr;
-    const statusEmitterEmit = (type, message) => {
-      statusEmitter.emit(type, message);
-    };
+        let sentry;
 
-    let sentry;
+        let testMetadata;
+        let stdout = clc.greenBright(logStamp()) + " Magellan child process start\n\n";
+        let stderr = "";
 
-    let testMetadata;
-    let stdout = clc.greenBright(logStamp()) + " Magellan child process start\n\n";
-    let stderr = "";
-
-    try {
-      // Attach listeners that respond to messages sent from the running test.
-      // These messages are sent with process.send()
-      this.listeners.forEach((listener) => {
-        if (listener.listenTo) {
-          listener.listenTo(testRun, test, statusEmitter);
-        }
-      });
-
-      statusEmitterEmit("message", {
-        type: "worker-status",
-        status: "started",
-        name: test.locator.toString()
-      });
-
-    } catch (e) {
-      deferred.reject(e);
-      return deferred.promise;
-    }
-
-    statusEmitterEmit("message", {
-      type: "analytics-event",
-      data: {
-        name: "test-run-" + testRun.guid,
-
-        markers: [{
-          name: "start",
-          t: Date.now()
-        }],
-
-        metadata: {
-          test: test.locator.toString(),
-          profile: test.profile.id,
-          // NOTE: attempt numbers are 1-indexed
-          attemptNumber: (test.attempts + 1)
-        }
-      }
-    });
-
-    // Note: There are three ways a process can die:
-    //
-    //   1. "close" emitted.
-    //   2. "exit" emitted.
-    //   3. direct call of workerClosed(), with a kill of the process tree.
-    //
-    // Because "close" emits unpredictably some time after we fulfill case
-    // #3, we wrap this callback in once() so that we only clean up once.
-    const workerClosed = once((code) => {
-      this.maybeIdle();
-
-      statusEmitterEmit("message", {
-        type: "analytics-event-mark",
-        eventName: "test-run-" + testRun.guid,
-        data: {
-          name: code === 0 ? "passed" : "failed",
-          t: Date.now()
-        }
-      });
-
-      test.stopClock();
-      this.clearInterval(sentry);
-
-      // add executor info into meta-data
-      if (testMetadata) {
-        testMetadata.executor = test.executor.shortName;
-      }
-
-      statusEmitterEmit("message", {
-        type: "worker-status",
-        status: "finished",
-        name: test.locator.toString(),
-        passed: code === 0,
-        metadata: testMetadata
-      });
-
-      // Detach ALL listeners that may have been attached
-      handler.stdout.removeAllListeners();
-      handler.stderr.removeAllListeners();
-      handler.stdout.unpipe();
-      handler.stderr.unpipe();
-      handler.removeAllListeners();
-
-      statusEmitter.stdout = null;
-      statusEmitter.stderr = null;
-
-      test.executor.summerizeTest(
-        this.buildId,
-        {
-          result: code === 0,
-          metadata: testMetadata
-        },
-        (additionalLog) => {
-          // Resolve the promise
-          deferred.resolve({
-            error: (code === 0) ? null : "Child test run process exited with code " + code,
-            stderr,
-            stdout: stdout +
-              (additionalLog && typeof additionalLog === "string" ? additionalLog : "")
+        try {
+          // Attach listeners that respond to messages sent from the running test.
+          // These messages are sent with process.send()
+          this.listeners.forEach((listener) => {
+            if (listener.listenTo) {
+              listener.listenTo(testRun, test, statusEmitter);
+            }
           });
-        });
-    });
 
-    if (this.debug) {
-      // For debugging purposes.
-      handler.on("message", (msg) => {
-        logger.debug("Message from worker:" + JSON.stringify(msg));
-      });
-    }
+          statusEmitterEmit("message", {
+            type: "worker-status",
+            status: "started",
+            name: test.locator.toString()
+          });
 
-    //
-    // Via IPC, capture the current selenium session id.
-    // Reporters and listeners can exploit this to tie certain runtime artifacts to the unique
-    // identity of the test run.
-    //
-    // FIXME: make it possible to receive this information from test frameworks not based on nodejs
-    //
-    handler.on("message", (message) => {
-      if (message.type === "test-meta-data") {
-        testMetadata = message.metadata;
-      }
-    });
-
-    handler.stdout.on("data", (data) => {
-      let text = ("" + data);
-      if (text.trim() !== "") {
-        text = text
-          .split("\n")
-          .filter((line) => {
-            /* istanbul ignore next */
-            return line.trim() !== "" || line.indexOf("\n") > -1;
-          })
-          .map((line) => {
-            // NOTE: since this comes from stdout, color the stamps green
-            return clc.greenBright(logStamp()) + " " + line;
-          })
-          .join("\n");
-
-        /* istanbul ignore else */
-        if (text.length > 0) {
-          stdout += text + "\n";
-        } else {
-          stdout += "\n";
+        } catch (e) {
+          deferred.reject(e);
+          return deferred.promise;
         }
-      }
-    });
 
-    handler.stderr.on("data", (data) => {
-      let text = ("" + data);
-      if (text.trim() !== "") {
-        text = text
-          .split("\n")
-          .filter((line) => {
-            /* istanbul ignore next */
-            return line.trim() !== "" || line.indexOf("\n") > -1;
-          })
-          .map((line) => {
-            // NOTE: since this comes from stderr, color the stamps red
-            return clc.redBright(logStamp()) + " " + line;
-          })
-          .join("\n");
-        /* istanbul ignore else */
-        if (text.length > 0) {
-          stdout += text + "\n";
-        } else {
-          stdout += "\n";
-        }
-      }
-    });
+        statusEmitterEmit("message", {
+          type: "analytics-event",
+          data: {
+            name: "test-run-" + testRun.guid,
 
-    handler.on("close", workerClosed);
-    handler.on("exit", workerClosed);
+            markers: [{
+              name: "start",
+              t: Date.now()
+            }],
 
-    // A sentry monitors how long a given worker has been working. In every
-    // strictness level except BAIL_NEVER, we kill a worker process and its
-    // process tree if its been running for too long.
-    test.startClock();
-    sentry = this.setInterval(() => {
-      if (this.strictness === strictness.BAIL_NEVER) {
-        return;
-      }
-
-      const runtime = test.getRuntime();
-
-      // Kill a running test under one of two conditions:
-      //   1. We've been asked to bail with this.hasBailed
-      //   2. the runtime for this test exceeds the limit.
-      //
-      if (this.hasBailed || runtime > strictness.LONG_RUNNING_TEST) {
-        // Stop the sentry now because we are going to yield for a moment before
-        // calling workerClosed(), which is normally responsible for stopping
-        // the sentry from monitoring.
-        this.clearInterval(sentry);
-
-        // Tell the child to shut down the running test immediately
-        handler.send({
-          signal: "bail",
-          customMessage: "Killed by magellan after " + strictness.LONG_RUNNING_TEST
-          + "ms (long running test)"
+            metadata: {
+              test: test.locator.toString(),
+              profile: test.profile.id,
+              // NOTE: attempt numbers are 1-indexed
+              attemptNumber: (test.attempts + 1)
+            }
+          }
         });
 
-        this.setTimeout(() => {
-          // We pass code 1 to simulate a failure return code from fork()
-          workerClosed(1);
-        }, WORKER_STOP_DELAY);
-      }
-    }, WORKER_POLL_INTERVAL);
+        // Note: There are three ways a process can die:
+        //
+        //   1. "close" emitted.
+        //   2. "exit" emitted.
+        //   3. direct call of workerClosed(), with a kill of the process tree.
+        //
+        // Because "close" emits unpredictably some time after we fulfill case
+        // #3, we wrap this callback in once() so that we only clean up once.
+        const workerClosed = once((code) => {
+          this.maybeIdle();
 
+          statusEmitterEmit("message", {
+            type: "analytics-event-mark",
+            eventName: "test-run-" + testRun.guid,
+            data: {
+              name: code === 0 ? "passed" : "failed",
+              t: Date.now()
+            }
+          });
+
+          test.stopClock();
+          this.clearInterval(sentry);
+
+          // add executor info into meta-data
+          if (testMetadata) {
+            testMetadata.executor = test.executor.shortName;
+          }
+
+          statusEmitterEmit("message", {
+            type: "worker-status",
+            status: "finished",
+            name: test.locator.toString(),
+            passed: code === 0,
+            metadata: testMetadata
+          });
+
+          // Detach ALL listeners that may have been attached
+          handler.stdout.removeAllListeners();
+          handler.stderr.removeAllListeners();
+          handler.stdout.unpipe();
+          handler.stderr.unpipe();
+          handler.removeAllListeners();
+
+          statusEmitter.stdout = null;
+          statusEmitter.stderr = null;
+
+          test.executor.summerizeTest(
+            this.buildId,
+            {
+              result: code === 0,
+              metadata: testMetadata
+            },
+            (additionalLog) => {
+              // Resolve the promise
+              deferred.resolve({
+                error: (code === 0) ? null : "Child test run process exited with code " + code,
+                stderr,
+                stdout: stdout +
+                  (additionalLog && typeof additionalLog === "string" ? additionalLog : "")
+              });
+            });
+        });
+
+        if (this.debug) {
+          // For debugging purposes.
+          handler.on("message", (msg) => {
+            logger.debug("Message from worker:" + JSON.stringify(msg));
+          });
+        }
+
+        //
+        // Via IPC, capture the current selenium session id.
+        // Reporters and listeners can exploit this to tie certain runtime artifacts to the unique
+        // identity of the test run.
+        //
+        // FIXME: make it possible to receive this information from test frameworks not based on nodejs
+        //
+        handler.on("message", (message) => {
+          if (message.type === "test-meta-data") {
+            testMetadata = message.metadata;
+          }
+        });
+
+        handler.stdout.on("data", (data) => {
+          let text = ("" + data);
+          if (text.trim() !== "") {
+            text = text
+              .split("\n")
+              .filter((line) => {
+                /* istanbul ignore next */
+                return line.trim() !== "" || line.indexOf("\n") > -1;
+              })
+              .map((line) => {
+                // NOTE: since this comes from stdout, color the stamps green
+                return clc.greenBright(logStamp()) + " " + line;
+              })
+              .join("\n");
+
+            /* istanbul ignore else */
+            if (text.length > 0) {
+              stdout += text + "\n";
+            } else {
+              stdout += "\n";
+            }
+          }
+        });
+
+        handler.stderr.on("data", (data) => {
+          let text = ("" + data);
+          if (text.trim() !== "") {
+            text = text
+              .split("\n")
+              .filter((line) => {
+                /* istanbul ignore next */
+                return line.trim() !== "" || line.indexOf("\n") > -1;
+              })
+              .map((line) => {
+                // NOTE: since this comes from stderr, color the stamps red
+                return clc.redBright(logStamp()) + " " + line;
+              })
+              .join("\n");
+            /* istanbul ignore else */
+            if (text.length > 0) {
+              stdout += text + "\n";
+            } else {
+              stdout += "\n";
+            }
+          }
+        });
+
+        handler.on("close", workerClosed);
+        handler.on("exit", workerClosed);
+
+        // A sentry monitors how long a given worker has been working. In every
+        // strictness level except BAIL_NEVER, we kill a worker process and its
+        // process tree if its been running for too long.
+        test.startClock();
+        sentry = this.setInterval(() => {
+          if (this.strictness === strictness.BAIL_NEVER) {
+            return;
+          }
+
+          const runtime = test.getRuntime();
+
+          // Kill a running test under one of two conditions:
+          //   1. We've been asked to bail with this.hasBailed
+          //   2. the runtime for this test exceeds the limit.
+          //
+          if (this.hasBailed || runtime > strictness.LONG_RUNNING_TEST) {
+            // Stop the sentry now because we are going to yield for a moment before
+            // calling workerClosed(), which is normally responsible for stopping
+            // the sentry from monitoring.
+            this.clearInterval(sentry);
+
+            // Tell the child to shut down the running test immediately
+            handler.send({
+              signal: "bail",
+              customMessage: "Killed by magellan after " + strictness.LONG_RUNNING_TEST
+              + "ms (long running test)"
+            });
+
+            this.setTimeout(() => {
+              // We pass code 1 to simulate a failure return code from fork()
+              workerClosed(1);
+            }, WORKER_STOP_DELAY);
+          }
+        }, WORKER_POLL_INTERVAL);
+      })
+      .catch(err => deferred.reject(err));
     return deferred.promise;
   }
 
