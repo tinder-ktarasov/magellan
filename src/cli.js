@@ -93,8 +93,7 @@ module.exports = (opts) => {
     //
     // HELP WANTED: If someone knows how to do this more gracefully, please contribute!
     //
-    const frameworkModulePath = "./node_modules/" + runOpts.settings.framework + "/index";
-    runOpts.settings.testFramework = runOpts.require(runOpts.path.resolve(frameworkModulePath));
+    runOpts.settings.testFramework = runOpts.require(runOpts.settings.framework);
   } catch (e) {
     frameworkLoadException = e;
   }
