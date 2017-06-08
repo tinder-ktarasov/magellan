@@ -392,14 +392,6 @@ class TestRunner {
             testMetadata.executor = test.executor.shortName;
           }
 
-          statusEmitterEmit("message", {
-            type: "worker-status",
-            status: "finished",
-            name: test.locator.toString(),
-            passed: code === 0,
-            metadata: testMetadata
-          });
-
           // Detach ALL listeners that may have been attached
           handler.stdout.removeAllListeners();
           handler.stderr.removeAllListeners();
@@ -417,13 +409,27 @@ class TestRunner {
               metadata: testMetadata
             },
             (additionalLog) => {
-              // Resolve the promise
-              deferred.resolve({
+              const runResults = {
                 error: (code === 0) ? null : "Child test run process exited with code " + code,
                 stderr,
                 stdout: stdout +
                   (additionalLog && typeof additionalLog === "string" ? additionalLog : "")
+              };
+
+              test.error = runResults.error;
+              test.stdout = runResults.stdout;
+              test.stderr = runResults.stderr;
+
+              statusEmitterEmit("message", {
+                type: "worker-status",
+                status: "finished",
+                name: test.locator.toString(),
+                passed: code === 0,
+                metadata: testMetadata
               });
+
+              // Resolve the promise
+              deferred.resolve(runResults);
             });
         });
 
