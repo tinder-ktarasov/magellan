@@ -494,6 +494,7 @@ class TestRunner {
     });
 
     handler.on("close", workerClosed);
+    handler.on("exit", workerClosed);
 
     // A sentry monitors how long a given worker has been working. In every
     // strictness level except BAIL_NEVER, we kill a worker process and its
